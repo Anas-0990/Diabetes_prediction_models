@@ -1,0 +1,190 @@
+---
+title: " Naive Bayes Model For Diabetics prediction"
+author: "Anas"
+date: "22/08/2024"
+output: html_document
+---
+
+## Install the required packages.
+```{r , echo=FALSE}
+pacman::p_load(tidyverse, GGally, gtools, skimr, mice, caret, pROC, class,car,CMplot, caret, ggplot2, caTools, devtools, naivebayes,tidyverse, reshape2, ggpubr, skimr, rpart.plot, performanceEstimation, e1071, splitTools, cluster, factoextra, ggfortify)
+```
+
+
+## Load the Diabetics prediction dataset.
+```{r , echo=FALSE}
+diab <- read.csv ("C:\\Users\\Anas\\Documents\\Workshops\\diabetes.csv")
+
+```
+
+
+## Convert the categorical data into numeric categories.
+```{r}
+diab$hypertension <- as.numeric(as.factor(diab$hypertension))
+diab$heart_disease  <- as.numeric(as.factor(diab$heart_disease))
+diab$gender <- as.numeric(as.factor(diab$gender))
+diab$smoking_history <- as.numeric(as.factor(diab$smoking_history))
+
+```
+
+
+# Modeling.
+## Train and test dataset splitting.
+We will split the dataset by 70/30 in accordance to our target proportion.
+```{r}
+library(rsample)
+set.seed(100)
+
+library(caTools)
+
+sample = sample.split(diab$bmi, SplitRatio = .7)
+diab.train <- subset(diab, sample == TRUE)
+diab.test  <- subset(diab, sample == FALSE)
+diab.test_step  <- subset(diab, sample == FALSE)
+
+
+train_x = diab.train[,1:8]
+train_y = as.factor(diab.train$diabetes) 
+
+test_x = diab.test[,1:8]
+test_y = as.factor(diab.test$diabetes)
+```
+
+
+#  Naive Bayes - Training using cross validation approach
+```{r Naive_Bayes, echo=FALSE}
+train_x1 <- as.matrix(train_x)
+
+
+library(naivebayes)
+NB = naive_bayes(train_x1, train_y)
+
+# summary(NB)
+# NB$params
+# NB$prior
+# coef(NB)
+```
+
+
+## Naive Bayes prediction results
+```{r}
+
+# Convert data frame to matrix as required by the model. 
+test_x1= as.matrix(sapply(test_x, as.numeric))
+
+
+# Perform predictions for the test data. Type can be class or prob for NB.
+pred = predict(NB, newdata = test_x1, type = "class")
+
+library(caret)
+NB_comf_mat <- confusionMatrix(data = test_y, reference = pred, positive = "1")
+NB_comf_mat
+
+
+#length(test_y)
+#length(pred)
+```
+
+
+# Work for Brier Score - IM-BALANCED dataset
+```{r}
+pred_DB = predict(NB, newdata = test_x1, type = "prob")
+test_y = as.numeric(test_y)
+
+sqdiff = (test_y - pred_DB)^2
+sqdiff.rm.na = complete.cases(sqdiff)  # remove rows with NA values.
+
+BrierScore= mean(sqdiff.rm.na)
+BrierScore
+```
+
+
+
+# Model Interpretation
+
+########################################################################
+
+# SMOTE on the training data and the NB model on it. 
+```{r}
+
+library(DMwR2) # this is obsolete package
+#install.packages("smotefamily")
+#library(smotefamily)
+#diab_balanced = SLS(diab[,-9],diab[,9] , C=5)
+
+set.seed(12345)
+diab_balanced = smote(diabetes ~ ., data = diab, perc.over = 1)
+
+
+library(rsample)
+set.seed(100)
+
+library(caTools)
+
+smp_size <- floor(0.70 * nrow(diab_balanced))
+set.seed(123)
+train_ind  <- sample(seq_len(nrow(diab_balanced)), size=smp_size)
+
+train <- diab_balanced[train_ind, ]
+test  <- diab_balanced[-train_ind,]
+
+xtrain_smote <- train[, 1:8] 
+ytrain_smote <- as.factor(train$diabetes)
+  
+xtest_smote <- test[, 1:8]
+ytest_smote <- as.factor(test$diabetes)
+
+```
+
+
+```{r}
+
+library(naivebayes)
+xtrain_smote1 = as.matrix(xtrain_smote)
+
+NB_SMOTE = naive_bayes(xtrain_smote1, ytrain_smote)
+
+
+summary(NB_SMOTE) 
+NB_SMOTE$params
+NB_SMOTE$prior
+coef(NB_SMOTE)
+
+```
+
+# Predictions using SMOTE based dataset
+```{r}
+# Convert data frame to matrix as required by the model. 
+xtest_smote1 = as.matrix(sapply(xtest_smote, as.numeric))
+
+# Perform predictions for the test data. Type can be class or prob for NB.
+pred_DB = predict(NB_SMOTE, newdata = xtest_smote1, type = "class")
+
+# Convert to vectors.
+pred_DB <- as.factor(pred_DB)
+ytest_smote <- as.factor(ytest_smote)
+
+# Same level.
+levels(pred_DB) <- levels(ytest_smote)
+
+# Confusion Matrix
+library(caret)
+NB_conf_mat_SMOTE <- confusionMatrix(data = pred_DB, reference = ytest_smote, positive = "1")
+NB_conf_mat_SMOTE
+
+table(ytrain_smote)
+```
+
+
+# Work for Brier Score - Balanced dataset
+```{r}
+pred_DB = predict(NB_SMOTE, newdata = xtest_smote1, type = "prob")
+ytest_smote = as.numeric(ytest_smote)
+
+sqdiff = (ytest_smote - pred_DB)^2
+sqdiff.rm.na = complete.cases(sqdiff)  # remove rows with NA values.
+
+BrierScore= mean(sqdiff.rm.na)
+BrierScore
+```
+

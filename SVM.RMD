@@ -1,0 +1,234 @@
+---
+title: "Support Vector Machines with linear, Radial basis and polynomisl kernels"
+author: "Anas"
+date: "7/15/2024"
+output: html_document
+---
+
+## Install the required packages.
+```{r }
+pacman::p_load(tidyverse, GGally, gtools, skimr, mice, caret, pROC, class,car,CMplot, caret, ggplot2, caTools, tidyverse, reshape2, ggpubr, skimr, rpart.plot, performanceEstimation, e1071, splitTools, cluster, factoextra, ggfortify)
+```
+
+
+## Load the Diabetics prediction dataset.
+```{r , echo=FALSE}
+diab <- read_csv("C:\\Users\\Anas\\Documents\\Workshops\\diabetes.csv")
+
+summary(diab)
+```
+
+## Convert the categorical data into numeric categories.
+```{r}
+diab$hypertension <- as.numeric(as.factor(diab$hypertension))
+diab$heart_disease  <- as.numeric(as.factor(diab$heart_disease))
+diab$gender <- as.numeric(as.factor(diab$gender))
+diab$smoking_history <- as.numeric(as.factor(diab$smoking_history))
+
+# diab$diabetes <- as.factor(diab$diabetes)
+```
+
+
+## Train and test dataset splitting.
+We will split the data set by 70/30 in accordance to our target proportion.
+
+```{r}
+library(rsample)
+set.seed(100)
+sample = sample.split(diab$bmi, SplitRatio = .7)
+diab.train <- subset(diab, sample == TRUE)
+diab.test  <- subset(diab, sample == FALSE)
+```
+
+
+# ==============================
+#Support Vector Machine
+# ==============================
+The data has undergone feature scaling to reduce bias. SVM calculates the distance between data points to find the optimal support vectors which would lead to the best decision boundary. Using non-scaled data will negatively affect the model’s ability to discover the true patterns present in the data as the distance between observations can greatly differ when the scale is different for each variable.
+
+```{r}
+library(reshape2)
+diabetes.scale <- diab
+diabetes.scale[,-9] <- scale(diab[,-9])
+data_long1 <- melt(diab[,1:8])
+
+```
+
+```{r}
+data_long2 <- melt(diabetes.scale[,1:8])
+```
+
+```{r}
+p1 <- ggplot(data_long1, aes(x = variable, y = value)) +
+  geom_boxplot() +
+  ggtitle("Non-Scaled Data")
+
+p2 <- ggplot(data_long2, aes(x = variable, y = value)) +
+  geom_boxplot() +
+  ggtitle("Scaled Data")
+
+ggarrange(p1, p2, nrow = 1, ncol = 2)
+
+```
+
+
+```{r}
+library(rsample)
+set.seed(12345)
+
+diab$diabetes <- as.factor(diab$diabetes)
+train_ind <- createDataPartition(diab$diabetes, p = 0.7, list = FALSE)
+
+diab.train <- diab[train_ind, ]
+diab.test <- diab[-train_ind, ]
+
+```
+
+As the data is imbalanced, with 91.5% non diabetes and only 8.5% having diabetes, it is good idea to create a balanced dataset for a better classification and comparable dataset for the two classes of the target variable. SVMs are not better than tree based models to deal with problem where the data is highly imbalanced. 
+
+
+# =====================================
+# SMOTE - Minotirty class over sampling
+# =====================================
+```{r}
+library(rsample)
+set.seed(12345)
+
+train.balanced <- smote(diabetes ~ ., data = diab, perc.over = 1)
+sample = sample.split(train.balanced$bmi, SplitRatio = .7)
+table(sample)
+
+train <- subset(train.balanced, sample == TRUE)
+test  <- subset(train.balanced, sample == FALSE)
+
+dim(train.balanced)
+dim(train)
+dim(test)
+```
+
+This model uses all available variables in the datasheet to predict Outcome. 
+
+
+# SVM with Linear kernel (imbalanced data) 
+# ----------------------------------------
+The first SVM model used only three variables to predict Outcome. The model underwent a grid search to identify the best hyper-parameter for C given a linear kernel.
+
+```{r SVM with Linear kernel (imbalanced data)}
+
+set.seed(12345)
+trctrl <- trainControl(method = "repeatedcv", number = 3, repeats = 2)
+grid_linear <- expand.grid(C = 0.5) 
+# grid_linear <- expand.grid(C = c(0.01, 0.05, 0.1, 0.25, 0.5, 1, 1.25, 1.5, 1.75,2,5,10)) # User can change the parameter C value.
+
+svm.model <- train(diabetes ~ ., 
+      data = diab.train, method = "svmLinear",
+      trControl=trctrl, tuneGrid = grid_linear,
+      tuneLength = 5)
+
+pred <- predict(svm.model, newdata = diab.test)
+SVM_Linear <- confusionMatrix(data = pred, reference = diab.test$diabetes, positive = "1")
+SVM_Linear
+
+```
+
+
+# SVM with Linear kernel - BALANCED DATA (SMOTE based balanced data) 
+# -------------------------------------------------------------------
+```{r}
+set.seed(12345)
+trctrl <- trainControl(method = "repeatedcv", number = 3, repeats = 2)
+grid_linear <- expand.grid(C = 0.5)
+
+svm.model <- train(diabetes ~ ., data = train, method = "svmLinear",
+      trControl=trctrl, tuneGrid = grid_linear,tuneLength = 5)
+
+pred <- predict(svm.model, newdata = test)
+smote_linear_SVM <- confusionMatrix(data = pred, reference = test$diabetes, positive="1")
+smote_linear_SVM
+
+```
+
+                        # -------------------------------------------------
+                        # SVM using Radial Basis function (imbalanced data) 
+                        # -------------------------------------------------
+
+```{r}
+set.seed(12345)
+grid_radial <- expand.grid(sigma = c(0.5),C = c(0.5))
+
+
+svm.RBF <- train(diabetes ~ ., data = diab.train, method = "svmRadial")
+
+# svm.RBF <- train(diabetes ~ ., 
+#      data = diab.train, method = "svmRadial",
+#      trControl=trctrl,  tuneGrid = grid_radial,
+#      tuneLength = 1)
+
+pred<-predict(svm.RBF, newdata = diab.test)
+cm5 <-confusionMatrix(data=pred, reference=diab.test$diabetes, positive="1")
+cm5
+```
+
+# -----------------------------------------------------
+# SVM using Radial Basis function (SMOTE balanced data) 
+# -----------------------------------------------------
+```{r}
+set.seed(12345)
+grid_radial <- expand.grid(sigma = c(0.5),C = c(0.01, 0.1, 0.5, 1.0))
+
+svm.RBF <- train(diabetes ~ ., 
+      data = train, method = "svmRadial"  )
+
+pred <- predict(svm.RBF, newdata = test)
+SMOTEcm5 <- confusionMatrix(data=pred, reference=test$diabetes, positive="1")
+SMOTEcm5
+```
+
+# --------------------------------------------------
+# SVM using Polynomial kernel (with imbalanced data)
+# --------------------------------------------------
+For nonlinear problems, the SVM with Polynmial kernel could be a better solution. Polynomial functions of degree 2,3 or higher might outperform the linear, and RBF kernel bases SVM classifiers. This model underwent the same tuning procedure as linear and RBF one.
+
+
+```{r}
+set.seed(12345)
+
+grid_poly <- expand.grid(degree = c(2),  scale = c(0.5),  C = c(1.0))
+
+svm.Poly <- train(diabetes ~ ., 
+      data = diab.train, method = "svmPoly",trControl=trctrl,
+      tuneGrid = grid_poly,tuneLength = 10)
+
+pred <- predict(svm.Poly, newdata = diab.test)
+cm6 <- confusionMatrix(data = pred, reference = diab.test$diabetes, positive = "1")
+cm6
+```
+
+The model does not out perform the Simple Linear SVM model. It also does worse than its counterpart, Simple Polynomial SVM model.
+
+
+
+# -------------------------------------------------
+# SVM using Polynomial kernel (SMOTE balanced data)
+# -------------------------------------------------
+
+```{r}
+set.seed(12345)
+
+grid_poly <- expand.grid(degree = c(2),  scale = c(0.5),  C = c(1.0))
+
+svm.Poly <- train(diabetes ~ ., 
+      data = train, method = "svmPoly",trControl=trctrl,
+      tuneGrid = grid_poly,tuneLength = 10)
+
+pred <- predict(svm.Poly, newdata = diab.test)
+
+SMOTEcm6 <- confusionMatrix(data = pred, reference = diab.test$diabetes, positive = "1")
+
+SMOTEcm6
+
+```
+
+The model does not out perform the Simple Linear SVM model. It also does worse than its counterpart, Simple Polynomial SVM model.
+
+```

@@ -1,0 +1,177 @@
+---
+title: "Gaussian Naive Bayes Model For Diabetics prediction"
+author: "Anas"
+date: "7/21/2024"
+output: html_document
+---
+
+## Install the required packages.
+```{r , echo=FALSE}
+pacman::p_load(tidyverse, GGally, gtools, skimr, mice, caret, pROC, class,car,CMplot, caret, ggplot2, caTools, devtools, naivebayes,tidyverse, reshape2, ggpubr, skimr, rpart.plot, performanceEstimation, e1071, splitTools, cluster, factoextra, ggfortify)
+```
+
+
+## Load the Diabetics prediction dataset.
+```{r , echo=FALSE}
+diab <- read_csv("C:\\Users\\Anas\\Documents\\Workshops\\diabetes.csv")
+
+```
+
+## Convert the categorical data into numeric categories.
+```{r}
+diab$hypertension <- as.numeric(as.factor(diab$hypertension))
+diab$heart_disease  <- as.numeric(as.factor(diab$heart_disease))
+diab$gender <- as.numeric(as.factor(diab$gender))
+diab$smoking_history <- as.numeric(as.factor(diab$smoking_history))
+```
+
+
+# Modeling.
+
+## Train and test dataset splitting.
+We will split the dataset by 70/30 in accordance to our target proportion.
+```{r}
+library(rsample)
+set.seed(100)
+
+library(caTools)
+
+sample = sample.split(diab$bmi, SplitRatio = .7)
+diab.train <- subset(diab, sample == TRUE)
+diab.test  <- subset(diab, sample == FALSE)
+diab.test_step  <- subset(diab, sample == FALSE)
+
+
+train_x = diab.train[,1:8]
+train_y = as.factor(diab.train$diabetes) 
+
+test_x = diab.test[,1:8]
+test_y = as.factor(diab.test$diabetes)
+```
+
+
+# Gaussian Naive Bayes - Training using cross validation approach
+```{r Gaussian_Naive_Bayes, echo=FALSE}
+# train_y <- (as.factor(train$diabetes))
+train_x1 <- as.matrix(train_x)
+test_x1  <- as.matrix(test_x)
+
+library(naivebayes)
+GNB = gaussian_naive_bayes(train_x1, train_y)
+
+pred_GNB_DB = predict(GNB, newdata = test_x1, type = "prob")
+
+summary(GNB)
+GNB$params
+GNB$prior
+coef(GNB)
+```
+
+## Gaussian Naive Bayes prediction results
+```{r}
+# Convert data frame to matrix as required by the model. 
+test_x = as.matrix(sapply(test_x, as.numeric))
+
+# Perform predictions for the test data. Type can be class or prob for GNB.
+pred = predict(GNB, newdata = test_x, type = "class")
+
+library(caret)
+GNB_comf_mat <- confusionMatrix(data=test_y, reference=pred, positive="1")
+GNB_comf_mat
+
+#length(test_y)
+#length(pred)
+
+```
+
+# Work for Brier Score - IMBALANCDED dataset
+
+```{r}
+pred_DB = predict(GNB, newdata = test_x1, type = "prob")
+test_y = as.numeric(test_y)
+
+sqdiff = (test_y - pred_DB)^2
+sqdiff.rm.na = complete.cases(sqdiff)  # remove rows with NA values.
+
+BrierScore= mean(sqdiff.rm.na)
+BrierScore
+```
+
+# ---------------------------------------------------
+# SMOTE on the training data and the GNB model on it. 
+# ---------------------------------------------------
+```{r}
+
+library(DMwR2)
+set.seed(12345)
+diab_balanced = smote(diabetes ~ ., data = diab, perc.over = 1)
+
+library(rsample)
+set.seed(100)
+
+library(caTools)
+
+smp_size <- floor(0.70 * nrow(diab_balanced))
+set.seed(123)
+train_ind  <- sample(seq_len(nrow(diab_balanced)), size=smp_size)
+
+train <- diab_balanced[train_ind, ]
+test  <- diab_balanced[-train_ind,]
+
+xtrain_smote <- train[, 1:8] 
+ytrain_smote <- as.factor(train$diabetes)
+  
+xtest_smote <- test[, 1:8]
+ytest_smote <- as.factor(test$diabetes)
+
+##
+library(smotefamily)
+ytrain_smote_GNB <- smote(diabetes ~ ., data = diab.train, perc.over = 200, perc.under = 100)
+
+
+```
+
+# ----------------------------------------------------------------------
+# Gaussian Naive Bayes Classification with model validation on test data 
+# ----------------------------------------------------------------------
+
+```{r}
+
+library(naivebayes)
+xtrain_smote1 = as.matrix(xtrain_smote)
+
+GNB_SMOTE = gaussian_naive_bayes(xtrain_smote1, ytrain_smote)
+summary(GNB_SMOTE) 
+GNB_SMOTE$params
+GNB_SMOTE$prior
+coef(GNB_SMOTE)
+
+```
+
+# Predictions using SMOTE based dataset
+```{r}
+# Convert data frame to matrix as requried by the model. 
+xtest_smote1 = as.matrix(sapply(xtest_smote, as.numeric))
+
+
+# Perform predictions for the test data. Type can be class or prob for GNB.
+pred_DB = predict(GNB_SMOTE, newdata = xtest_smote1, type = "class")
+
+library(caret)
+GNB_comf_mat_SMOTE <- confusionMatrix(data = ytest_smote, reference = pred_DB, positive = "1")
+GNB_comf_mat_SMOTE
+
+```
+
+# Work for Brier Score - Balanced dataset
+```{r}
+pred_DB = predict(GNB_SMOTE, newdata = xtest_smote1, type = "prob")
+
+ytest_smote = as.numeric(ytest_smote)
+
+sqdiff = (ytest_smote - pred_DB)^2
+sqdiff.rm.na = complete.cases(sqdiff)  # remove rows with NA values.
+
+BrierScore= mean(sqdiff.rm.na)
+BrierScore
+```

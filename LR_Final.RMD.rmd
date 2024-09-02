@@ -1,0 +1,172 @@
+---
+title: "Logistic Regression For Diabetics prediction"
+author: "Anas"
+date: "8/31/2024"
+output: html_document
+---
+
+# Install the required packages.
+```{r }
+pacman::p_load(tidyverse, GGally, gtools, skimr, mice, caret, pROC, class,car,CMplot, caret, ggplot2, caTools, devtools, naivebayes,tidyverse, reshape2, ggpubr, skimr, rpart.plot, performanceEstimation, e1071, splitTools, cluster, factoextra, ggfortify)
+```
+
+
+## Load the Diabetics prediction dataset.
+```{r , echo=FALSE}
+diab <- read.csv ("C:\\Users\\Anas\\Documents\\Workshops\\diabetes.csv")
+
+
+```
+
+```{r}
+# skim(diab)
+# boxplot(diab, las = 2, varwidth = T)
+# ggcorr(diab, label = T)
+```
+
+
+```{r}
+diab$hypertension <- as.numeric(as.factor(diab$hypertension))
+diab$heart_disease  <- as.numeric(as.factor(diab$heart_disease))
+diab$gender <- as.numeric(as.factor(diab$gender))
+diab$smoking_history <- as.numeric(as.factor(diab$smoking_history))
+
+```
+
+
+```{r}
+#prop.table(table(diab$diabetes))
+```
+
+
+# Modeling.
+## Train and test dataset splitting.
+We will split the dataset by 70/30 in accordance to our target proportion.
+
+```{r}
+library(rsample)
+set.seed(100)
+
+require(caTools)
+
+sample = sample.split(diab$bmi, SplitRatio = .7)
+diab.train <- subset(diab, sample == TRUE)
+diab.test  <- subset(diab, sample == FALSE)
+```
+
+
+# EDA on train dataset
+```{r}
+#skim(diab.train)
+#boxplot(diab.train, las = 2, varwidth = T)
+#ggcorr(diab.train, label = T)
+```
+
+# Logistic Regression on imbalanced data
+```{r}
+model1 <- glm( diabetes ~ .,family = "binomial", data = diab.train)
+summary(model1)
+
+# Paramaeters' Interpretation
+exp(model1$coefficients)
+
+```
+
+# Model Evaluation
+## Residual deviance, AIC and VIF of each models
+```{r}
+model1$deviance
+model1$aic
+
+# VIF: #vif(model1)
+
+```
+
+
+# LR model Prediction for imbalanced data
+# ----------------------------------------
+```{r}
+# Using 0.3 as the threshold probability.
+# --------------------------------------
+diab.test$pred.Outcome <- predict(model1,newdata=diab.test,type = "response")
+prob = diab.test$pred.Outcome
+diab.test$pred.Outcome <-as.factor(ifelse(diab.test$pred.Outcome > 0.7, "1","0"))
+
+```
+
+
+# -------------------------------------------------------------
+# Model Comparison using confusion matrix eith imbalanced data
+# -------------------------------------------------------------
+```{r}
+predicted_y      <- diab.test$pred.Outcome
+test_y <- (as.factor(diab.test$diabetes))
+confusionMatrix(data = test_y,reference = predicted_y, positive = "1")
+
+
+# Brier Score for Imbalanced data
+# -------------------------------
+diab.test$diabetes <- as.numeric(diab.test$diabetes)
+sqdiff = (diab.test$diabetes - prob)^2
+#sqdiff.rm.na = complete.cases(sqdiff)  # remove rows with NA values.
+
+BrierScore= mean(sqdiff)
+BrierScore
+
+
+
+```
+
+
+# ------------------------------------------------------------------------------
+#                    SMOTE over-sampling from minorty class
+# ------------------------------------------------------------------------------
+Since our outcome is not balanced, we need to balance the data before we make a model out of it. using SMOTE.
+
+
+# ----------------------------------------------------------
+# Logistic Regression with Brier Score with model validation
+# ----------------------------------------------------------
+```{r}
+set.seed(12345)
+train.balanced <- smote(diabetes ~ ., data = diab, perc.over = 1)
+
+library(rsample); set.seed(100)
+sample = sample.split(train.balanced$bmi, SplitRatio = .7)
+train <- subset(train.balanced, sample == TRUE)
+test  <- subset(train.balanced, sample == FALSE)
+```
+
+
+# Logistic Regression for balanced data
+# -------------------------------------
+```{r}
+train$diabetes <- as.factor(train$diabetes)
+mod_SMOTE <- glm( diabetes ~ .,family = "binomial", data = train)
+pred_diab <- predict(mod_SMOTE, test, type = "response")
+
+# Store the probabilities in prob
+test$prob= pred_diab;
+
+# Segmentation for Classification task.
+test$pred_diab <- factor(ifelse(pred_diab > 0.5, 1,0))
+
+```
+
+
+# Brier Score for LR model using Imbalanced data
+# ---------------------------------------------
+```{r}
+predicted_y      <- test$pred_diab
+test_y <- (as.factor(test$diabetes))
+                     
+confusionMatrix(data = test_y, reference = predicted_y, positive = "1")
+
+
+test$diabetes <- as.numeric(test$diabetes)
+sqdiff = (test$diabetes - test$prob)^2
+sqdiff.rm.na = complete.cases(sqdiff)  # remove rows with NA values.
+
+BrierScore= mean(sqdiff.rm.na)
+BrierScore
+```

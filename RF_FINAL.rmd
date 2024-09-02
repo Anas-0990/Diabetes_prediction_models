@@ -1,0 +1,122 @@
+---
+title: "Random Forest for Diabetics prediction"
+author: "Anas"
+date: "31/08/2024"
+output: html_document
+---
+
+## Install the required packages.
+```{r }
+pacman::p_load(tidyverse, GGally, gtools, skimr, mice, caret, pROC, class,car,CMplot, caret, ggplot2, caTools, tidyverse, reshape2, ggpubr, skimr, rpart.plot, performanceEstimation, e1071, splitTools, cluster, factoextra, ggfortify)
+```
+
+
+## Load the Diabetics prediction dataset.
+```{r , echo=FALSE}
+diab <- read.csv ("C:\\Users\\Anas\\Documents\\Workshops\\diabetes.csv")
+summary(diab)
+```
+
+
+## Convert the categorical data into numeric categories.
+```{r}
+diab$hypertension <- as.numeric(as.factor(diab$hypertension))
+diab$heart_disease  <- as.numeric(as.factor(diab$heart_disease))
+diab$gender <- as.numeric(as.factor(diab$gender))
+diab$smoking_history <- as.numeric(as.factor(diab$smoking_history))
+diab$diabetes <- as.factor(diab$diabetes)
+```
+
+
+# Modeling.
+## Train and test dataset splitting.
+We will split the dataset by 70/30 in accordance to our target proportion.
+```{r}
+library(rsample)
+set.seed(100)
+sample = sample.split(diab$bmi, SplitRatio = .7)
+diab.train <- subset(diab, sample == TRUE)
+diab.test  <- subset(diab, sample == FALSE)
+```
+
+ 
+# Random Forest - Training using cross validation approach
+The Random Forest model with all variables and the hyperparameters of 3 fold cross validation and ntree = 10/20/25 (using small numbers due to data size). The model seems to perform best using only a handful of variables. The most important features in the Random Forest are HbA1c level, blood Glucose level, BMI and age.
+
+```{r Random Forest}
+set.seed(12345)
+trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+
+forest <- train(diabetes ~ .,
+                method = "rf",
+                trControl = trctrl,
+                ntree = 10,
+                data = diab.train)
+forest
+plot(forest)
+plot(varImp(forest))
+```
+
+
+# Random Forest prediction results
+# --------------------------------
+```{r}
+pred <- predict(forest, newdata = diab.test)
+#test_y      <- (as.factor(diab.test$diabetes))
+result <- table(diab.test$diabetes, pred)
+
+model_forest <- confusionMatrix(data=pred, reference=diab.test$diabetes, positive="1")
+model_forest
+```
+
+# Model Interpretation
+```{r}
+#summary(tree1)
+model_forest$byClass
+```
+
+
+
+# ==============================
+#   SMOTE based Random Forest
+# ==============================
+```{r}
+set.seed(12345)
+train.balanced <- smote(diabetes ~ ., data = diab, perc.over = 1)
+
+
+library(rsample)
+set.seed(100)
+sample = sample.split(train.balanced$bmi, SplitRatio = .7)
+train <- subset(train.balanced, sample == TRUE)
+test  <- subset(train.balanced, sample == FALSE)
+#dim(train)
+#dim(test)
+
+```
+
+
+
+```{r Random Forest - Balanced data}
+set.seed(12345)
+trctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+
+forest <- train(diabetes ~ .,
+                method = "rf",
+                trControl = trctrl,
+                ntree = 10,
+                data = train)
+plot(forest)
+plot(varImp(forest))
+
+
+# Balanced data - Random Forest prediction results
+# ------------------------------------------------
+pred <- predict(forest, newdata = test)
+#test_y      <- (as.factor(diab.test$diabetes))
+result <- table(test$diabetes, pred)
+
+model_forest <- confusionMatrix(data=pred, reference=test$diabetes, positive="1")
+model_forest
+
+```
